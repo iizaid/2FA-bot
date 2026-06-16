@@ -333,17 +333,18 @@ async def confirm_rename(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
 
 async def begin_export(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    if await require_onboarded_user(update, context) is None:
+    if await require_unlocked_vault(update, context) is None:
         return ConversationHandler.END
     await _reply_or_edit(update, "Enter an export password.", reply_markup=keyboards.cancel_keyboard())
     return EXPORT_PASSWORD
 
 
 async def receive_export_password(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    user = await require_onboarded_user(update, context)
+    user = await require_unlocked_vault(update, context)
     if user is None:
         return ConversationHandler.END
     rt = runtime(context)
+    vault_key = rt.auth.require_vault_key(user.id)
     try:
         password = clean_pin(update.effective_message.text or "")
     except ValueError as exc:
@@ -352,8 +353,15 @@ async def receive_export_password(update: Update, context: ContextTypes.DEFAULT_
         return EXPORT_PASSWORD
     with session_scope(rt.session_factory) as session:
         accounts = list(AccountRepository(session).list_for_user(user.id))
-        backup_bytes, export_hash = rt.backup.export_user_accounts(user_id=user.id, accounts=accounts, password=password)
+        backup_bytes, export_hash = rt.backup.export_user_accounts(
+            user_id=user.id,
+            accounts=accounts,
+            password=password,
+            vault_key=vault_key,
+            encryption=rt.encryption,
+        )
         ExportRepository(session).record(user_id=user.id, file_name="totp-vault-backup.json.enc", export_hash=export_hash)
+    password = ""
     await safe_delete_current_message(update)
     await update.effective_chat.send_document(
         document=InputFile(io.BytesIO(backup_bytes), filename="totp-vault-backup.json.enc"),
@@ -386,8 +394,11 @@ async def receive_import_password(update: Update, context: ContextTypes.DEFAULT_
     if user is None:
         return ConversationHandler.END
     rt = runtime(context)
+    vault_key = rt.auth.require_vault_key(user.id)
     try:
-        payload = rt.backup.decrypt_backup(context.user_data["backup_bytes"], clean_pin(update.effective_message.text or ""))
+        backup_password = clean_pin(update.effective_message.text or "")
+        payload = rt.backup.decrypt_backup(context.user_data["backup_bytes"], backup_password)
+        backup_password = ""
     except (ValueError, BackupError) as exc:
         await safe_delete_current_message(update)
         await update.effective_chat.send_message(f"Import failed: {exc}", reply_markup=keyboards.main_menu())
@@ -401,18 +412,20 @@ async def receive_import_password(update: Update, context: ContextTypes.DEFAULT_
             if repo.find_duplicate_for_user(user.id, record["service_name"], record["account_label"], record.get("issuer")):
                 skipped += 1
                 continue
+            totp_secret = record["totp_secret"]
             repo.create_for_user(
                 user_id=user.id,
                 vault_id=vault.id,
                 service_name=record["service_name"],
                 account_label=record["account_label"],
                 issuer=record.get("issuer"),
-                encrypted_secret=base64.b64decode(record["encrypted_secret"]),
+                encrypted_secret=rt.encryption.encrypt_text(totp_secret, vault_key),
                 encrypted_metadata=record.get("encrypted_metadata"),
                 algorithm=record.get("algorithm", "SHA1"),
                 digits=int(record.get("digits", 6)),
                 period=int(record.get("period", 30)),
             )
+            totp_secret = ""
             imported += 1
     await safe_delete_current_message(update)
     context.user_data.clear()

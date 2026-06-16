@@ -11,6 +11,7 @@ from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 
 from app.models import VaultAccount
+from app.services.encryption import EncryptionService
 from app.utils.time import utc_now
 
 
@@ -30,29 +31,45 @@ class BackupService:
         )
         return base64.urlsafe_b64encode(kdf.derive(password.encode("utf-8")))
 
-    def export_user_accounts(self, *, user_id: str, accounts: list[VaultAccount], password: str) -> tuple[bytes, str]:
+    def export_user_accounts(
+        self,
+        *,
+        user_id: str,
+        accounts: list[VaultAccount],
+        password: str,
+        vault_key: bytes,
+        encryption: EncryptionService,
+    ) -> tuple[bytes, str]:
+        if not vault_key:
+            raise BackupError("vault must be unlocked before export")
         salt = os.urandom(16)
         fernet = Fernet(self._derive_key(password, salt))
-        payload = {
-            "version": 1,
-            "user_id": user_id,
-            "exported_at": utc_now().isoformat(),
-            "accounts": [
+        exported_accounts = []
+        for account in accounts:
+            if account.user_id != user_id:
+                continue
+            totp_secret = encryption.decrypt_text(account.encrypted_secret, vault_key)
+            exported_accounts.append(
                 {
                     "service_name": account.service_name,
                     "account_label": account.account_label,
                     "issuer": account.issuer,
-                    "encrypted_secret": base64.b64encode(account.encrypted_secret).decode("ascii"),
+                    "totp_secret": totp_secret,
                     "encrypted_metadata": account.encrypted_metadata,
                     "algorithm": account.algorithm,
                     "digits": account.digits,
                     "period": account.period,
                 }
-                for account in accounts
-                if account.user_id == user_id
-            ],
+            )
+            totp_secret = ""
+        payload = {
+            "version": 1,
+            "exported_at": utc_now().isoformat(),
+            "accounts": exported_accounts,
         }
         token = fernet.encrypt(json.dumps(payload, separators=(",", ":")).encode("utf-8"))
+        exported_accounts.clear()
+        payload.clear()
         wrapper = {
             "format": "totp-vault-bot-backup",
             "version": 1,
@@ -62,6 +79,7 @@ class BackupService:
             "payload": token.decode("ascii"),
         }
         data = json.dumps(wrapper, indent=2).encode("utf-8")
+        password = ""
         return data, hashlib.sha256(data).hexdigest()
 
     def decrypt_backup(self, backup_bytes: bytes, password: str) -> dict[str, Any]:

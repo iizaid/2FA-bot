@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     supabase_secret_key: str | None = Field(None, alias="SUPABASE_SECRET_KEY")
     admin_telegram_ids: str = Field("", alias="ADMIN_TELEGRAM_IDS")
     app_env: str = Field("development", alias="APP_ENV")
+    auto_create_tables: bool = Field(False, alias="AUTO_CREATE_TABLES")
     log_level: str = Field("INFO", alias="LOG_LEVEL")
     vault_session_seconds: int = Field(180, alias="VAULT_SESSION_SECONDS")
     code_message_ttl_seconds: int = Field(45, alias="CODE_MESSAGE_TTL_SECONDS")

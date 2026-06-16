@@ -10,6 +10,10 @@ from app.config import Settings
 from app.models import Base
 
 
+class DatabaseConfigurationError(RuntimeError):
+    pass
+
+
 def build_engine(settings: Settings):
     connect_args = {"check_same_thread": False} if settings.database_url.startswith("sqlite") else {}
     return create_engine(settings.database_url, future=True, connect_args=connect_args)
@@ -21,6 +25,12 @@ def build_session_factory(settings: Settings) -> sessionmaker[Session]:
 
 
 def init_db(settings: Settings) -> None:
+    if settings.app_env.lower() == "production" and settings.auto_create_tables:
+        raise DatabaseConfigurationError("AUTO_CREATE_TABLES=true is not allowed when APP_ENV=production")
+    if not settings.auto_create_tables:
+        return
+    if settings.app_env.lower() not in {"development", "test"}:
+        raise DatabaseConfigurationError("AUTO_CREATE_TABLES is only allowed in development or test")
     engine = build_engine(settings)
     Base.metadata.create_all(engine)
 

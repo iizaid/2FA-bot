@@ -4,11 +4,12 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import BigInteger, DateTime, ForeignKey, Integer, LargeBinary, String, Text, UniqueConstraint
+from sqlalchemy import BigInteger, DateTime, ForeignKey, Integer, LargeBinary, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from sqlalchemy.types import JSON
 
+from app.db_types import GUID
 from app.utils.time import utc_now
 
 
@@ -26,7 +27,7 @@ json_type = JSON().with_variant(JSONB, "postgresql")
 class User(Base):
     __tablename__ = "users"
 
-    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid_str)
+    id: Mapped[str] = mapped_column(GUID(), primary_key=True, default=uuid_str)
     telegram_id: Mapped[int] = mapped_column(BigInteger, unique=True, nullable=False, index=True)
     username: Mapped[str | None] = mapped_column(Text, nullable=True)
     first_name: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -45,8 +46,8 @@ class User(Base):
 class Vault(Base):
     __tablename__ = "vaults"
 
-    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid_str)
-    user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"), unique=True, nullable=False)
+    id: Mapped[str] = mapped_column(GUID(), primary_key=True, default=uuid_str)
+    user_id: Mapped[str] = mapped_column(GUID(), ForeignKey("users.id", ondelete="CASCADE"), unique=True, nullable=False)
     kdf_salt: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
     passphrase_hash: Mapped[str] = mapped_column(Text, nullable=False)
     encryption_scheme: Mapped[str] = mapped_column(Text, nullable=False)
@@ -65,9 +66,9 @@ class VaultAccount(Base):
         UniqueConstraint("user_id", "service_name", "account_label", "issuer", name="uq_vault_account_user_identity"),
     )
 
-    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid_str)
-    user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
-    vault_id: Mapped[str] = mapped_column(String(36), ForeignKey("vaults.id", ondelete="CASCADE"), nullable=False, index=True)
+    id: Mapped[str] = mapped_column(GUID(), primary_key=True, default=uuid_str)
+    user_id: Mapped[str] = mapped_column(GUID(), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    vault_id: Mapped[str] = mapped_column(GUID(), ForeignKey("vaults.id", ondelete="CASCADE"), nullable=False, index=True)
     service_name: Mapped[str] = mapped_column(Text, nullable=False, index=True)
     account_label: Mapped[str] = mapped_column(Text, nullable=False, index=True)
     issuer: Mapped[str | None] = mapped_column(Text, nullable=True, index=True)
@@ -84,8 +85,8 @@ class VaultAccount(Base):
 class VaultSession(Base):
     __tablename__ = "vault_sessions"
 
-    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid_str)
-    user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    id: Mapped[str] = mapped_column(GUID(), primary_key=True, default=uuid_str)
+    user_id: Mapped[str] = mapped_column(GUID(), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     unlocked_until: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
 
@@ -93,8 +94,8 @@ class VaultSession(Base):
 class SecurityEvent(Base):
     __tablename__ = "security_events"
 
-    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid_str)
-    user_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    id: Mapped[str] = mapped_column(GUID(), primary_key=True, default=uuid_str)
+    user_id: Mapped[str | None] = mapped_column(GUID(), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     telegram_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     event_type: Mapped[str] = mapped_column(Text, nullable=False)
     severity: Mapped[str] = mapped_column(Text, default="info", nullable=False)
@@ -105,10 +106,10 @@ class SecurityEvent(Base):
 class AdminAuditLog(Base):
     __tablename__ = "admin_audit_logs"
 
-    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid_str)
-    admin_user_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    id: Mapped[str] = mapped_column(GUID(), primary_key=True, default=uuid_str)
+    admin_user_id: Mapped[str | None] = mapped_column(GUID(), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     action: Mapped[str] = mapped_column(Text, nullable=False)
-    target_user_id: Mapped[str | None] = mapped_column(String(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    target_user_id: Mapped[str | None] = mapped_column(GUID(), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     safe_metadata: Mapped[dict[str, Any] | None] = mapped_column(json_type, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
 
@@ -116,8 +117,8 @@ class AdminAuditLog(Base):
 class EncryptedExport(Base):
     __tablename__ = "encrypted_exports"
 
-    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid_str)
-    user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    id: Mapped[str] = mapped_column(GUID(), primary_key=True, default=uuid_str)
+    user_id: Mapped[str] = mapped_column(GUID(), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     file_name: Mapped[str] = mapped_column(Text, nullable=False)
     export_hash: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)

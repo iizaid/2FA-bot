@@ -15,3 +15,10 @@ def test_rls_migration_files_exist_and_enable_rls() -> None:
     text = migration.read_text(encoding="utf-8").lower()
     assert "enable row level security" in text
     assert "vault_accounts" in text
+
+
+def test_admin_audit_logs_rls_migration_exists() -> None:
+    text = Path("app/db_migrations/002_rls_policies.sql").read_text(encoding="utf-8").lower()
+
+    assert "alter table admin_audit_logs enable row level security" in text
+    assert "admin_audit_logs_backend_insert" in text

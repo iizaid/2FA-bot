@@ -12,6 +12,7 @@ This is not a claim of perfect security. It is a practical design with encrypted
 - Generated OTP codes are sent as temporary Telegram messages and are not persisted.
 - If a user forgets their vault passphrase, encrypted TOTP secrets cannot be recovered.
 - Telegram bot messages pass through Telegram. Use Telegram 2FA and keep your Telegram account secure.
+- Vault unlock sessions are memory-only. After restart/deploy, users must unlock again. Vault keys are not persisted.
 
 ## Admin Limitations
 
@@ -46,6 +47,8 @@ Admins cannot:
 
 RLS policies are included as defense in depth. The Python bot still enforces app-level authorization on every repository call because backend service keys can bypass RLS.
 
+Production schema creation must be handled by `app/db_migrations/` or your migration runner. The app does not auto-create production tables.
+
 ## Environment Variables
 
 Copy `.env.example` to `.env` and fill values:
@@ -57,6 +60,7 @@ SUPABASE_URL=
 SUPABASE_SECRET_KEY=
 ADMIN_TELEGRAM_IDS=
 APP_ENV=development
+AUTO_CREATE_TABLES=false
 LOG_LEVEL=INFO
 VAULT_SESSION_SECONDS=180
 CODE_MESSAGE_TTL_SECONDS=45
@@ -83,6 +87,8 @@ python run.py
 ```
 
 For local tests, SQLite is supported as a development/test fallback. Production should use Supabase Postgres.
+
+Set `AUTO_CREATE_TABLES=true` only for local development or tests. `APP_ENV=production` rejects `AUTO_CREATE_TABLES=true`.
 
 ## BotFather Setup
 
