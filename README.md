@@ -1,44 +1,73 @@
-# Personal Telegram TOTP Vault Bot
+# Public Telegram TOTP Vault Bot
 
-A private Telegram bot for storing TOTP authenticator setup secrets and generating 6-digit codes on demand. It is designed for one owner only, configured with `OWNER_TELEGRAM_ID`.
+A public multi-user Telegram bot for storing encrypted TOTP authenticator setup secrets and generating OTP codes on demand. Each Telegram user gets an isolated vault protected by their own passphrase.
 
-## Security Warning
+This is not a claim of perfect security. It is a practical design with encrypted storage, strict app-level authorization, short unlock sessions, safe logging, rate limits, and Supabase RLS as defense in depth.
 
-This bot stores TOTP setup secrets only. Never send Telegram login codes, account passwords, Gmail passwords, Telegram 2FA passwords, recovery codes, or other real account credentials. Generated TOTP codes are not stored in the database.
+## Security Model
 
-## Features
+- Every Telegram user has a separate `users` row, `vaults` row, and scoped `vault_accounts`.
+- TOTP setup secrets are encrypted with a key derived from the user's vault passphrase and per-vault salt.
+- Vault passphrases, backup passwords, plaintext setup keys, `otpauth://` URIs, and generated OTP codes are never stored.
+- Generated OTP codes are sent as temporary Telegram messages and are not persisted.
+- If a user forgets their vault passphrase, encrypted TOTP secrets cannot be recovered.
+- Telegram bot messages pass through Telegram. Use Telegram 2FA and keep your Telegram account secure.
 
-- Owner-only access control.
-- Encrypted TOTP secrets at rest.
-- Local PIN/passphrase unlock with Argon2 hashing.
-- Expiring vault sessions and `/lock`.
-- Rate limiting for failed unlock attempts.
-- Inline-button interface and slash commands.
-- Encrypted backup export/import.
-- SQLite local storage by default.
+## Admin Limitations
 
-## Create a Telegram Bot Token
+Admins are configured with `ADMIN_TELEGRAM_IDS`.
 
-1. Open Telegram and chat with `@BotFather`.
-2. Send `/newbot`.
-3. Follow the prompts and copy the bot token.
-4. Put the token in `.env` as `BOT_TOKEN`.
+Admins can view safe operational metadata:
+- total users
+- active/blocked/deleted counts
+- total vault account count
+- safe security events
+- database/connectivity status
+- block, unblock, and soft-delete users by Telegram ID
+- broadcast announcements to active users
 
-## Get Your Telegram User ID
+Admins cannot:
+- view plaintext TOTP secrets
+- view setup keys or `otpauth://` URIs
+- view generated OTP codes
+- view vault passphrases or backup passwords
+- decrypt user vaults
+- generate OTP codes for another user
+- export plaintext vaults
 
-Use a trusted ID bot such as `@userinfobot`, or temporarily run this bot and inspect your own update through Telegram tooling. Set the numeric ID as `OWNER_TELEGRAM_ID`.
+## Supabase Setup
 
-## Generate `VAULT_MASTER_KEY`
+1. Create a Supabase project.
+2. Get the direct Postgres connection string.
+3. Set it as `SUPABASE_DB_URL`.
+4. Run migrations in `app/db_migrations/` in order:
+   - `001_public_multi_user_schema.sql`
+   - `002_rls_policies.sql`
 
-Run:
+RLS policies are included as defense in depth. The Python bot still enforces app-level authorization on every repository call because backend service keys can bypass RLS.
 
-```powershell
-python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+## Environment Variables
+
+Copy `.env.example` to `.env` and fill values:
+
+```env
+BOT_TOKEN=
+SUPABASE_DB_URL=
+SUPABASE_URL=
+SUPABASE_SECRET_KEY=
+ADMIN_TELEGRAM_IDS=
+APP_ENV=development
+LOG_LEVEL=INFO
+VAULT_SESSION_SECONDS=180
+CODE_MESSAGE_TTL_SECONDS=45
+MAX_UNLOCK_ATTEMPTS=5
+LOCKOUT_SECONDS=300
+GLOBAL_RATE_LIMIT_PER_MINUTE=30
 ```
 
-Store the result in `.env` as `VAULT_MASTER_KEY`. If this key is lost, existing encrypted secrets cannot be decrypted.
+`SUPABASE_SECRET_KEY` must stay server-side. Do not put it in any client application.
 
-## Installation
+## Install
 
 ```powershell
 python -m venv .venv
@@ -47,66 +76,91 @@ pip install -r requirements.txt
 Copy-Item .env.example .env
 ```
 
-Edit `.env` and fill in `BOT_TOKEN`, `OWNER_TELEGRAM_ID`, and `VAULT_MASTER_KEY`.
-
 ## Run Locally
 
 ```powershell
 python run.py
 ```
 
-On startup, the bot creates the SQLite tables and sets the Telegram command list.
+For local tests, SQLite is supported as a development/test fallback. Production should use Supabase Postgres.
+
+## BotFather Setup
+
+1. Open Telegram and chat with `@BotFather`.
+2. Send `/newbot`.
+3. Copy the token into `BOT_TOKEN`.
 
 ## Commands
 
-- `/start` - Show welcome screen and main menu
-- `/menu` - Show main menu
-- `/unlock` - Unlock the vault
-- `/lock` - Lock the vault
-- `/add` - Add a new TOTP account
-- `/accounts` - Show all saved accounts
-- `/code` - Choose account and show current TOTP code
-- `/search` - Search accounts
-- `/rename` - Rename an account
-- `/delete` - Delete an account
-- `/export` - Export encrypted backup
-- `/import` - Import encrypted backup
-- `/settings` - Show settings
-- `/status` - Show vault status
-- `/help` - Show help
+- `/start` - create/update user and start onboarding
+- `/menu` - main menu
+- `/unlock` - unlock your vault
+- `/lock` - lock your vault
+- `/add` - add a TOTP account
+- `/accounts` - list your accounts
+- `/code` - choose an account and show code
+- `/search` - search your accounts
+- `/rename` - rename your account
+- `/delete` - delete your account entry
+- `/export` - export encrypted backup
+- `/import` - import encrypted backup
+- `/settings` - show settings
+- `/status` - show vault status
+- `/privacy` - privacy notice
+- `/terms` - terms
+- `/security` - security guidance
+- `/delete_my_data` - soft-delete your user status
+- `/admin` - safe admin dashboard
+- `/help` - help
 
-## Usage Flow
+## Admin Flow
 
-1. Start the bot with `/start`.
-2. Choose `Unlock Vault`. On first use, create a local PIN/passphrase.
-3. Choose `Add Account`.
-4. Enter service name and account label.
-5. Send only the TOTP setup key or `otpauth://totp/...` URI.
-6. Enter the current setup code from the service page to verify the secret.
-7. Use `My Accounts` and `Show Code` to generate codes.
+Use `/admin` for the dashboard. Supported safe actions:
 
-Code messages are auto-deleted according to `CODE_MESSAGE_TTL_SECONDS` when Telegram allows deletion.
+```text
+/admin events
+/admin db
+/admin block <telegram_id>
+/admin unblock <telegram_id>
+/admin soft_delete <telegram_id>
+/admin broadcast <message>
+```
 
-## Backup and Import
+Admin actions record audit logs with safe metadata only. No admin command can decrypt vault data or generate another user's OTP code.
 
-Use `/export` to create an encrypted backup file. The export password is separate from the vault PIN. Store both the backup and password safely.
+## User Flow
 
-Use `/import` to upload a backup and enter its password. Duplicate accounts are skipped when possible.
+1. Send `/start`.
+2. Accept terms and privacy notice.
+3. Create and confirm a vault passphrase.
+4. Unlock the vault when needed.
+5. Add accounts using Base32 setup keys or `otpauth://totp/...` URIs.
+6. View OTP codes from your own account list.
+
+## Backup, Export, Import
+
+Exports include only the current user's accounts. The backup payload is encrypted with an export password. Backup passwords are not stored or logged.
+
+Imports decrypt the backup and insert only into the current user's vault. Duplicate accounts are skipped where possible.
+
+## Data Deletion
+
+Use `/delete_my_data` to soft-delete your account status and disable vault access. A hard-delete workflow can be added as a future operational command using the same user-scoped repository model.
 
 ## Troubleshooting
 
-- `Access denied`: verify `OWNER_TELEGRAM_ID`.
-- Bot does not start: verify `BOT_TOKEN` and dependencies.
-- Cannot decrypt accounts: verify the same `VAULT_MASTER_KEY` is configured.
-- Codes fail on services: check your system clock and confirm the setup key was copied correctly.
-- No auto-delete: Telegram may reject deleting older messages or messages outside bot permissions.
+- Cannot connect to database: verify `SUPABASE_DB_URL`.
+- Unlock fails: verify the vault passphrase.
+- OTP codes fail: verify server clock and the setup key.
+- Access denied to admin: verify `ADMIN_TELEGRAM_IDS`.
+- Lost passphrase: encrypted secrets cannot be recovered.
 
 ## Security Checklist
 
 - Keep `.env` private.
-- Back up `VAULT_MASTER_KEY` securely.
-- Use a strong local PIN/passphrase.
-- Run the bot only on a trusted machine.
-- Do not paste passwords, recovery codes, or Telegram login codes into the bot.
-- Review logs before sharing; logs are designed to avoid sensitive data.
-
+- Do not expose Supabase secret/service keys to clients.
+- Use a strong vault passphrase.
+- Enable Telegram 2FA.
+- Keep recovery codes outside the bot.
+- Avoid banking, crypto, and highly sensitive accounts during beta.
+- Review logs before sharing; logging is designed to redact sensitive terms.
